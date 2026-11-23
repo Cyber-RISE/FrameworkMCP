@@ -10,6 +10,14 @@ import { SafeguardManager } from '../../core/safeguard-manager.js';
 
 const VERSION = '3.1.0';
 
+/**
+ * Seconds advertised in Retry-After on a 429. Must match `simple.period` on the
+ * RATE_LIMITER binding in wrangler.jsonc -- it was hardcoded to 60 and went
+ * stale the moment that period changed, telling clients to back off six times
+ * longer than they needed to.
+ */
+const RATE_LIMIT_PERIOD_SECONDS = 10;
+
 /** Cloudflare rate-limiting binding (optional; configured in wrangler.jsonc). */
 interface RateLimiter {
   limit(options: { key: string }): Promise<{ success: boolean }>;
@@ -171,7 +179,7 @@ export default {
         return json(
           { error: 'Too many requests', retryAfter: 'See Retry-After header', timestamp: new Date().toISOString() },
           429,
-          { 'Retry-After': '60', ...cors, ...SECURITY_HEADERS },
+          { 'Retry-After': String(RATE_LIMIT_PERIOD_SECONDS), ...cors, ...SECURITY_HEADERS },
         );
       }
     } else if (!rateLimiterWarned) {

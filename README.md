@@ -174,8 +174,8 @@ The HTTP server is compatible with any cloud platform that supports Node.js.
 | `PORT` | 8080 | HTTP server port |
 | `NODE_ENV` | development | Environment mode |
 | `ALLOWED_ORIGINS` | localhost:3000 | CORS allowed origins (comma-separated; `*` to allow any) |
-| `RATE_LIMIT_WINDOW_MS` | 60000 | Rate limit window (ms) |
-| `RATE_LIMIT_MAX` | 100 | Max requests per window |
+| `RATE_LIMIT_WINDOW_MS` | 10000 | Rate limit window (ms) |
+| `RATE_LIMIT_MAX` | 20 | Max requests per window |
 | `RATE_LIMIT_SKIP_IPS` | *unset* | Client IPs exempt from rate limiting (comma-separated) |
 | `TRUST_PROXY` | *unset* | Proxy hops in front of the server, or an address list |
 
