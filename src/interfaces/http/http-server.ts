@@ -40,7 +40,49 @@ export class FrameworkHttpServer {
     };
   }
 
+  /**
+   * Resolve Express's `trust proxy` setting from TRUST_PROXY.
+   *
+   * Left unset, `req.ip` is the socket peer. Behind a load balancer that is the
+   * balancer's address, so every client on earth shares one rate-limit bucket
+   * and RATE_LIMIT_SKIP_IPS can never match a real client. Set it to the number
+   * of proxy hops in front of this server (usually 1) to recover the true IP.
+   *
+   * Accepts a hop count, or any address list Express understands
+   * ('loopback', '10.0.0.0/8', a comma-separated mix). Returns false when
+   * unset, which keeps the direct-connection default.
+   */
+  private parseTrustProxy(): number | string | boolean {
+    const raw = process.env.TRUST_PROXY?.trim();
+    if (!raw) {
+      return false;
+    }
+
+    // 'true' and '*' trust whatever X-Forwarded-For the client sends, making
+    // req.ip attacker-controlled -- that bypasses rate limiting outright and
+    // lets anyone forge their way into the RATE_LIMIT_SKIP_IPS allowlist.
+    // express-rate-limit also refuses to run against a permissive setting
+    // (ERR_ERL_PERMISSIVE_TRUST_PROXY), so reject it here with a usable message
+    // rather than letting it fail deeper in the stack.
+    if (raw === 'true' || raw === '*') {
+      throw new Error(
+        'TRUST_PROXY=true trusts any client-supplied X-Forwarded-For, which ' +
+        'defeats rate limiting. Set it to the number of proxy hops in front ' +
+        'of this server (e.g. TRUST_PROXY=1) or to specific addresses/CIDRs.'
+      );
+    }
+
+    if (raw === 'false') {
+      return false;
+    }
+
+    return /^[0-9]+$/.test(raw) ? parseInt(raw, 10) : raw;
+  }
+
   private setupMiddleware(): void {
+    // Must precede the rate limiter, which resolves req.ip through this setting.
+    this.app.set('trust proxy', this.parseTrustProxy());
+
     // Rate limiting middleware - must be before other middleware
     const limiter = rateLimit({
       windowMs: this.rateLimitConfig.windowMs,
@@ -211,8 +253,9 @@ export class FrameworkHttpServer {
   }
 
   private setupErrorHandling(): void {
-    // 404 handler
-    this.app.use('*', (req, res) => {
+    // 404 handler. Express 5 runs path-to-regexp v8, where a bare '*' is not a
+    // valid path -- the wildcard must be named ('/{*splat}').
+    this.app.use('/{*splat}', (req, res) => {
       res.status(404).json(this.createErrorResponse(
         `Endpoint not found: ${req.method} ${req.originalUrl}`,
         'Use GET /api for available endpoints'
