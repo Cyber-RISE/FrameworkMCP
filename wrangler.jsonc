@@ -1,6 +1,11 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "framework-mcp-api",
+  // Must match the deployed Worker, which the dashboard names "frameworkmcp".
+  // Workers Builds deploys to whichever Worker the Git integration is attached
+  // to, so a mismatch here stayed invisible in CI -- but a local `npm run deploy`
+  // reads this name and would create a second, stray Worker instead of updating
+  // production.
+  "name": "frameworkmcp",
   "main": "src/interfaces/worker/worker.ts",
   "compatibility_date": "2026-08-01",
   "workers_dev": true,
