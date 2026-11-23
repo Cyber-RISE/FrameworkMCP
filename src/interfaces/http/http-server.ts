@@ -78,18 +78,26 @@ export class FrameworkHttpServer {
       },
     }));
 
-    // CORS configuration
+    // CORS configuration. `cors` matches array entries by exact string equality,
+    // so a literal '*' inside an array blocks every cross-origin request instead
+    // of allowing any -- the wildcard has to be passed as a bare string to emit
+    // `Access-Control-Allow-Origin: *`. Mirrors corsHeaders() in the Worker.
+    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim())
+      || ['http://localhost:3000'];
+
+    // No `credentials: true`: this API is unauthenticated public data, and
+    // allowing credentials alongside a wildcard origin is both invalid per spec
+    // and the groundwork for a CORS bypass if auth is ever added.
     this.app.use(cors({
-      origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+      origin: allowedOrigins.includes('*') ? '*' : allowedOrigins,
       methods: ['GET', 'POST', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-      credentials: true
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
     }));
 
-    // Compression and parsing
+    // Compression. No body parsers: every route is a GET and none reads a
+    // request body, so parsing one only bought attack surface -- 10MB of JSON
+    // was parsed even on POSTs to nonexistent paths that end at the 404 handler.
     this.app.use(compression());
-    this.app.use(express.json({ limit: '10mb' }));
-    this.app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
     // Request logging in production
     if (process.env.NODE_ENV === 'production') {
