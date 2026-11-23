@@ -173,9 +173,23 @@ The HTTP server is compatible with any cloud platform that supports Node.js.
 |----------|---------|-------------|
 | `PORT` | 8080 | HTTP server port |
 | `NODE_ENV` | development | Environment mode |
-| `ALLOWED_ORIGINS` | localhost:3000 | CORS allowed origins (comma-separated) |
+| `ALLOWED_ORIGINS` | localhost:3000 | CORS allowed origins (comma-separated; `*` to allow any) |
 | `RATE_LIMIT_WINDOW_MS` | 60000 | Rate limit window (ms) |
 | `RATE_LIMIT_MAX` | 100 | Max requests per window |
+| `RATE_LIMIT_SKIP_IPS` | *unset* | Client IPs exempt from rate limiting (comma-separated) |
+| `TRUST_PROXY` | *unset* | Proxy hops in front of the server, or an address list |
+
+Set `TRUST_PROXY` whenever the server sits behind a load balancer, CDN, or
+ingress. Unset, `req.ip` is the socket peer -- which behind a proxy is the
+*proxy's* address, so every client shares one rate-limit bucket and
+`RATE_LIMIT_SKIP_IPS` can never match anyone. `TRUST_PROXY=1` (one hop) is the
+usual value; it also accepts an address list Express understands, such as
+`loopback` or `10.0.0.0/8`.
+
+`TRUST_PROXY=true` is rejected at startup. It would trust any
+client-supplied `X-Forwarded-For`, making `req.ip` attacker-controlled -- which
+bypasses rate limiting outright and lets anyone forge their way into the
+`RATE_LIMIT_SKIP_IPS` allowlist. Name the hop count or the addresses instead.
 
 ## CIS Controls Coverage
 

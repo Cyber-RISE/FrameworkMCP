@@ -69,3 +69,6 @@ temp/
 
 CLAUDE.md
 docs/*.pdf
+
+# Wrangler local state
+.wrangler/

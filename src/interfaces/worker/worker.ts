@@ -23,6 +23,9 @@ export interface Env {
 // One instance per isolate — the data is static and building it is the only cost.
 const safeguardManager = new SafeguardManager();
 
+// Latched per isolate so the warning below costs one log line, not one per request.
+let rateLimiterWarned = false;
+
 const SECURITY_HEADERS: Record<string, string> = {
   'Content-Security-Policy':
     "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:",
@@ -39,10 +42,19 @@ function corsHeaders(request: Request, env: Env): Record<string, string> {
   const headers: Record<string, string> = {
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
-    'Access-Control-Allow-Credentials': 'true',
     'Vary': 'Origin',
   };
-  if (origin && (allowed.includes('*') || allowed.includes(origin))) {
+
+  // No `Access-Control-Allow-Credentials`. Reflecting the caller's Origin while
+  // allowing credentials is the standard CORS bypass -- it sidesteps the spec's
+  // ban on pairing credentials with a literal '*'. It buys an attacker nothing
+  // today (this API is unauthenticated, cookieless, public CIS data) but would
+  // become exploitable the moment anything authenticated sits in front of it.
+  if (allowed.includes('*')) {
+    // Wildcard means wildcard: emit the literal '*' rather than echoing back
+    // whatever Origin was sent.
+    headers['Access-Control-Allow-Origin'] = '*';
+  } else if (origin && allowed.includes(origin)) {
     headers['Access-Control-Allow-Origin'] = origin;
   }
   return headers;
@@ -162,6 +174,16 @@ export default {
           { 'Retry-After': '60', ...cors, ...SECURITY_HEADERS },
         );
       }
+    } else if (!rateLimiterWarned) {
+      // Failing open is deliberate -- an unbound binding should not take the
+      // API down -- but it must not be silent. Renaming or dropping
+      // RATE_LIMITER in wrangler.jsonc otherwise removes rate limiting
+      // entirely with no signal until someone notices the load.
+      rateLimiterWarned = true;
+      console.warn(
+        '[Worker] RATE_LIMITER binding is absent — requests are NOT being rate ' +
+        'limited. Check the `unsafe.bindings` entry in wrangler.jsonc.',
+      );
     }
 
     let response: Response;

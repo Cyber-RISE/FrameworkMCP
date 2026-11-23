@@ -14,6 +14,23 @@ export class SafeguardManager {
     this.precomputeSafeguardKeys();
   }
 
+  /**
+   * Own-property lookup into the safeguards map.
+   *
+   * `this.safeguards` is a plain object literal, so a bare
+   * `this.safeguards[safeguardId]` also answers for inherited keys --
+   * 'constructor' and '__proto__' both come back truthy. Every caller today
+   * gates on validateSafeguardId()'s /^[0-9]+\.[0-9]+$/ first, but
+   * getSafeguardDetails() is public and exported from index.ts, so nothing
+   * stops a future caller from reaching it without that guard.
+   */
+  private getOwnSafeguard(safeguardId: string): SafeguardElement | undefined {
+    // Object.hasOwn is ES2022; this project targets ES2020.
+    return Object.prototype.hasOwnProperty.call(this.safeguards, safeguardId)
+      ? this.safeguards[safeguardId]
+      : undefined;
+  }
+
   public getSafeguardDetails(safeguardId: string, includeExamples: boolean = false): SafeguardElement | null {
     // Check cache first
     const cacheKey = `${safeguardId}_${includeExamples}`;
@@ -22,7 +39,7 @@ export class SafeguardManager {
       return cached;
     }
 
-    const safeguard = this.safeguards[safeguardId];
+    const safeguard = this.getOwnSafeguard(safeguardId);
     if (!safeguard) {
       return null;
     }
@@ -71,7 +88,7 @@ export class SafeguardManager {
       throw new Error('Safeguard ID must be in format "X.Y" (e.g., "1.1", "5.1")');
     }
 
-    if (!this.safeguards[safeguardId]) {
+    if (!this.getOwnSafeguard(safeguardId)) {
       const availableSafeguards = this.listAvailableSafeguards();
       throw new Error(`Safeguard ${safeguardId} not found. Available safeguards: ${availableSafeguards.join(', ')}`);
     }

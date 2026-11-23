@@ -40,7 +40,49 @@ export class FrameworkHttpServer {
     };
   }
 
+  /**
+   * Resolve Express's `trust proxy` setting from TRUST_PROXY.
+   *
+   * Left unset, `req.ip` is the socket peer. Behind a load balancer that is the
+   * balancer's address, so every client on earth shares one rate-limit bucket
+   * and RATE_LIMIT_SKIP_IPS can never match a real client. Set it to the number
+   * of proxy hops in front of this server (usually 1) to recover the true IP.
+   *
+   * Accepts a hop count, or any address list Express understands
+   * ('loopback', '10.0.0.0/8', a comma-separated mix). Returns false when
+   * unset, which keeps the direct-connection default.
+   */
+  private parseTrustProxy(): number | string | boolean {
+    const raw = process.env.TRUST_PROXY?.trim();
+    if (!raw) {
+      return false;
+    }
+
+    // 'true' and '*' trust whatever X-Forwarded-For the client sends, making
+    // req.ip attacker-controlled -- that bypasses rate limiting outright and
+    // lets anyone forge their way into the RATE_LIMIT_SKIP_IPS allowlist.
+    // express-rate-limit also refuses to run against a permissive setting
+    // (ERR_ERL_PERMISSIVE_TRUST_PROXY), so reject it here with a usable message
+    // rather than letting it fail deeper in the stack.
+    if (raw === 'true' || raw === '*') {
+      throw new Error(
+        'TRUST_PROXY=true trusts any client-supplied X-Forwarded-For, which ' +
+        'defeats rate limiting. Set it to the number of proxy hops in front ' +
+        'of this server (e.g. TRUST_PROXY=1) or to specific addresses/CIDRs.'
+      );
+    }
+
+    if (raw === 'false') {
+      return false;
+    }
+
+    return /^[0-9]+$/.test(raw) ? parseInt(raw, 10) : raw;
+  }
+
   private setupMiddleware(): void {
+    // Must precede the rate limiter, which resolves req.ip through this setting.
+    this.app.set('trust proxy', this.parseTrustProxy());
+
     // Rate limiting middleware - must be before other middleware
     const limiter = rateLimit({
       windowMs: this.rateLimitConfig.windowMs,
@@ -78,18 +120,26 @@ export class FrameworkHttpServer {
       },
     }));
 
-    // CORS configuration
+    // CORS configuration. `cors` matches array entries by exact string equality,
+    // so a literal '*' inside an array blocks every cross-origin request instead
+    // of allowing any -- the wildcard has to be passed as a bare string to emit
+    // `Access-Control-Allow-Origin: *`. Mirrors corsHeaders() in the Worker.
+    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim())
+      || ['http://localhost:3000'];
+
+    // No `credentials: true`: this API is unauthenticated public data, and
+    // allowing credentials alongside a wildcard origin is both invalid per spec
+    // and the groundwork for a CORS bypass if auth is ever added.
     this.app.use(cors({
-      origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+      origin: allowedOrigins.includes('*') ? '*' : allowedOrigins,
       methods: ['GET', 'POST', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-      credentials: true
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
     }));
 
-    // Compression and parsing
+    // Compression. No body parsers: every route is a GET and none reads a
+    // request body, so parsing one only bought attack surface -- 10MB of JSON
+    // was parsed even on POSTs to nonexistent paths that end at the 404 handler.
     this.app.use(compression());
-    this.app.use(express.json({ limit: '10mb' }));
-    this.app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
     // Request logging in production
     if (process.env.NODE_ENV === 'production') {
@@ -203,8 +253,9 @@ export class FrameworkHttpServer {
   }
 
   private setupErrorHandling(): void {
-    // 404 handler
-    this.app.use('*', (req, res) => {
+    // 404 handler. Express 5 runs path-to-regexp v8, where a bare '*' is not a
+    // valid path -- the wildcard must be named ('/{*splat}').
+    this.app.use('/{*splat}', (req, res) => {
       res.status(404).json(this.createErrorResponse(
         `Endpoint not found: ${req.method} ${req.originalUrl}`,
         'Use GET /api for available endpoints'
