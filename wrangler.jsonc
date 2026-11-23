@@ -21,7 +21,9 @@
   // Mirrors RATE_LIMIT_MAX / RATE_LIMIT_WINDOW_MS defaults from the Express server.
   "unsafe": {
     "bindings": [
-      { "name": "RATE_LIMITER", "type": "ratelimit", "namespace_id": "1001", "simple": { "limit": 20, "period": 10 } }
+      // namespace_id is bumped alongside any limit/period change: the id names a
+      // provisioned counter namespace, and bindings sharing an id share counters.
+      { "name": "RATE_LIMITER", "type": "ratelimit", "namespace_id": "1002", "simple": { "limit": 20, "period": 10 } }
     ]
   }
   // Custom domain (optional): uncomment and set your zone's hostname.
