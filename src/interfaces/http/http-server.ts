@@ -34,8 +34,9 @@ export class FrameworkHttpServer {
   private parseRateLimitConfig(): RateLimitConfig {
     const skipIpsEnv = process.env.RATE_LIMIT_SKIP_IPS;
     return {
-      windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10),
-      max: parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
+      // 20 per 10s, mirroring the RATE_LIMITER binding in wrangler.jsonc.
+      windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '10000', 10),
+      max: parseInt(process.env.RATE_LIMIT_MAX || '20', 10),
       skipIps: skipIpsEnv ? skipIpsEnv.split(',').map(ip => ip.trim()) : undefined
     };
   }
