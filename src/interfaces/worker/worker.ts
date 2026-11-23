@@ -23,6 +23,9 @@ export interface Env {
 // One instance per isolate — the data is static and building it is the only cost.
 const safeguardManager = new SafeguardManager();
 
+// Latched per isolate so the warning below costs one log line, not one per request.
+let rateLimiterWarned = false;
+
 const SECURITY_HEADERS: Record<string, string> = {
   'Content-Security-Policy':
     "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:",
@@ -171,6 +174,16 @@ export default {
           { 'Retry-After': '60', ...cors, ...SECURITY_HEADERS },
         );
       }
+    } else if (!rateLimiterWarned) {
+      // Failing open is deliberate -- an unbound binding should not take the
+      // API down -- but it must not be silent. Renaming or dropping
+      // RATE_LIMITER in wrangler.jsonc otherwise removes rate limiting
+      // entirely with no signal until someone notices the load.
+      rateLimiterWarned = true;
+      console.warn(
+        '[Worker] RATE_LIMITER binding is absent — requests are NOT being rate ' +
+        'limited. Check the `unsafe.bindings` entry in wrangler.jsonc.',
+      );
     }
 
     let response: Response;
